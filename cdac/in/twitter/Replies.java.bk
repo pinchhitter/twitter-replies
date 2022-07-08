@@ -1,0 +1,92 @@
+package cdac.in.twitter;
+
+import java.io.*;
+import java.util.*;
+
+import org.json.simple.JSONArray;
+import org.json.simple.JSONObject;
+import org.json.simple.JSONObject;
+import org.json.simple.parser.JSONParser;
+import org.json.simple.*;
+
+class Replies{
+
+	public static void main(String[] args) throws Throwable {
+
+		try {
+
+			String cId = "1543099230423642112";
+			String nToken="b26v89c19zqg8o3fpz2m11cnfayjlttejlofdof8bmt8d";
+			String[] cmd = new String[]{"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query=conversation_id:"+cId+"&tweet.fields=in_reply_to_user_id,author_id,created_at,conversation_id", "--header", "Authorization:Bearer AAAAAAAAAAAAAAAAAAAAALivWAEAAAAAXcD4lXCFanxzHh6lv9%2FNHAVUGjE%3DEDXLrN3koUlwmMFWoyt2nBfj88mkc5O0AmeNEsJjQYuzGSMT2y"};
+
+			int count = 0;
+			while( true ){
+
+				ProcessBuilder builder = new ProcessBuilder( cmd );
+				Process process = builder.start();
+				BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+				String replies = "";
+				String line = null;
+				while ((line = reader.readLine()) != null) {
+					replies += line;
+				}
+            			process.waitFor();
+				if( replies.trim().length() == 0 )
+					break;
+
+				JSONObject obj = ( JSONObject ) ( new JSONParser().parse( replies ) );
+				JSONArray arr = (JSONArray) obj.get("data");
+
+
+				Iterator itr = arr.iterator();
+          
+        			while ( itr.hasNext() ) {
+					/*
+					Map<String, String> map = itr.next();
+					System.out.println( map.get( "text") );
+					*/	
+            				//Iterator<Map.Entry> itr1 = ( (Map) itr.next() ).entrySet().iterator();
+
+					Map<String, String> map = (Map) itr.next();
+					System.out.println( map.get( "text") );
+
+            				Iterator<Map.Entry> itr1 = ( (Map) itr.next() ).entrySet().iterator();
+					
+					
+            				while (itr1.hasNext()) {
+                				Map.Entry pair = itr1.next();
+                				//System.out.println(pair.getKey() + " : " + pair.getValue());
+            				}
+					
+        			}
+
+				/*
+				
+					for (int i = 0; i < arr.size(); i++)
+    						System.out.println(arr.get(i).get("text"));
+				*/
+				/*
+
+				Iterator<Map.Entry> itr = reps.entrySet().iterator();
+
+        			while (itr.hasNext()) {
+            				Map.Entry pair = itr.next();
+            				System.out.println(pair.getKey() + " : " + pair.getValue());
+        			}
+				*/
+          
+				//System.out.println( "==> "+jo.get("data").);	
+
+				nToken = replies.substring(replies.indexOf("\"next_token\":\"")+14, replies.length() - 3);
+				count += 10;
+				if( count >= 30)
+					break;
+				cmd = new String[]{"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query=conversation_id:"+cId+"&tweet.fields=in_reply_to_user_id,author_id,created_at,conversation_id&next_token="+nToken, "--header", "Authorization:Bearer AAAAAAAAAAAAAAAAAAAAALivWAEAAAAAXcD4lXCFanxzHh6lv9%2FNHAVUGjE%3DEDXLrN3koUlwmMFWoyt2nBfj88mkc5O0AmeNEsJjQYuzGSMT2y"};
+			}
+
+		}catch(Exception e){
+			e.printStackTrace();
+		}
+	}
+}
+
