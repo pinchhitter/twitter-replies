@@ -25,6 +25,7 @@ import edu.stanford.nlp.util.CoreMap;
 import edu.stanford.nlp.pipeline.CoreDocument;
 import edu.stanford.nlp.pipeline.CoreSentence;
 import edu.stanford.nlp.pipeline.CoreEntityMention;
+import edu.stanford.nlp.ling.*;
 
 class SortMapByValue {
 
@@ -55,9 +56,13 @@ class Replies{
 	String authorizationBearer = "";
 	StanfordCoreNLP pipeline = null;
 	Map<String, TreeMap<String, Integer>> NECount;
+	Map<String, TreeMap<String, Integer>> NNPCount;
 
 	Replies(){
+
 		NECount = new TreeMap<String, TreeMap<String, Integer>>();
+		NNPCount = new TreeMap<String, TreeMap<String, Integer>>();
+
 		try{
 			BufferedReader br = new BufferedReader( new FileReader( new File( "../properties.txt") ) );
                         String ApiKey = br.readLine().split(":")[1].trim();
@@ -102,7 +107,9 @@ class Replies{
 	}
 
 	void addNE(CoreEntityMention em){
+
 		TreeMap<String, Integer> entityCount = NECount.get( em.entityType() );
+
 		if( entityCount == null )
 			entityCount  = new TreeMap<String, Integer>();
 
@@ -119,14 +126,33 @@ class Replies{
 		NECount.put( em.entityType(), entityCount );
 	}
 
-	void print(){
-		for(String entityType: NECount.keySet() ){
-			Map<String,Integer> sortedMap =  SortMapByValue.sortByComparator( NECount.get( entityType ) , false);
+	void addNNP(String word, String type ){
+
+		String s1 = word.substring(0, 1).toUpperCase();
+    		word = s1 + word.substring(1);
+
+		TreeMap<String, Integer> entityCount = NNPCount.get( type );
+
+		if( entityCount == null )
+			entityCount  = new TreeMap<String, Integer>();
+
+		Integer count = entityCount.get( word );
+		if( count == null )
+			count = 0;
+		count++;
+		entityCount.put( word, count );
+
+		NNPCount.put( type,  entityCount);
+	}
+
+	void print( Map<String, TreeMap<String, Integer>> NCount, int length ){
+		for(String entityType: NCount.keySet() ){
+			Map<String,Integer> sortedMap =  SortMapByValue.sortByComparator( NCount.get( entityType ) , false);
 			int count = 0;
 			for(String entity: sortedMap.keySet() ){
 				System.out.println( entityType+", "+entity+", "+ sortedMap.get( entity ) );
 				count++;
-				if( count ==  10)
+				if( count ==  length)
 					break;
 			}
 		}
@@ -142,6 +168,7 @@ class Replies{
 
 		List<String> reply = new ArrayList<String>();
 		String[] cmd = new String[] {"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query=conversation_id:"+conversation_id+"&tweet.fields=in_reply_to_user_id,author_id,created_at,conversation_id", "--header", "Authorization:Bearer "+authorizationBearer};
+
 		int count = 0;
 		try{
 			while( true ){
@@ -168,13 +195,16 @@ class Replies{
 						reply.add( map.get( "text") );
 						count++;
 					}
+					
 					System.err.println("replies count: "+count);
+
 					if( count >= size)
 						break;
 					cmd = new String[]{"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query=conversation_id:"+conversation_id+"&tweet.fields=in_reply_to_user_id,author_id,created_at,conversation_id&next_token="+nToken, "--header", "Authorization:Bearer "+authorizationBearer};
 
 				}catch(Exception e){
 					cmd = new String[]{"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query=conversation_id:"+conversation_id+"&tweet.fields=in_reply_to_user_id,author_id,created_at,conversation_id&next_token="+(count++), "--header", "Authorization:Bearer "+authorizationBearer};
+					break;
 			
 				}
 
@@ -185,44 +215,87 @@ class Replies{
 	return reply;
 	}		
 
-	void analyser(List<String> replies){
+	boolean validNNP(String nnp){
+		String symbols = ";,@#$%6i^&*()_+:'\"";
+		if( symbols.indexOf( nnp ) >= 0 )
+			return false;
+	return true;
+	}
+
+	void analyser(List<String> replies, int length){
+
 		initCoreNLP();
+
 		for(String reply: replies){
+
 			CoreDocument doc = new CoreDocument( reply );
 			pipeline.annotate( doc );
+				
 			for (CoreEntityMention em : doc.entityMentions()){
 				addNE( em );
 			}
-    			//System.out.println("---");
-    			//System.out.println("tokens and ner tags");
-    			//String tokensAndNERTags = doc.tokens().stream().map(token -> "("+token.word()+","+token.ner()+")").collect( Collectors.joining(" "));
-    			//System.out.println(tokensAndNERTags);
-			//System.out.print(reply);
+
+			String NNP = "";
+			for (CoreLabel tok : doc.tokens()) {
+				if( tok.tag().equals("NNP") && tok.word().charAt(0) == '@' ){
+					if( NNP.trim().length() > 0)
+						addNNP( NNP.trim(), "NNP" );
+
+					addNNP( tok.word(), "TWITTER" );
+					NNP = "";
+
+				}else if( tok.tag().equals("NNP") && validNNP( tok.word().trim() ) )
+					NNP += " "+tok.word();
+				else{
+					if( NNP.trim().length() > 0)
+						addNNP( NNP.trim(), "NNP" );
+					NNP = "";
+				}
+   	 		}
+
+			if( NNP.trim().length() > 0)
+				addNNP( NNP.trim(), "NNP" );
+
+			/*
+
+			for (CoreSentence sent : doc.sentences()) {
+        			System.err.println(sent.text());
+    			}
+
+			//System.out.println("--- "+reply);
+			System.out.println("tokens and ner tags");
+			String tokensAndNERTags = doc.tokens().stream().map(token -> "("+token.word()+","+token.ner()+")").collect( Collectors.joining(" "));
+			//System.err.println(tokensAndNERTags);
+			*/
 		}
-		print();
+		//print( NECount, length );
+		print( NNPCount, length );
 	}
 
 	public static void main(String[] args) throws Throwable {
 
 		Replies reply = new Replies();
-		String conversation_id = "1543099230423642112";
+		String conversation_id = null;
 		int i = 0;
-		int size = 100;
+		int size = -1;
+		int length = 20;
 
 		while( i < args.length ){
 			if( args[i].equals("-cid") || args[i].equals("-c") )
 				conversation_id = args[ ++i ];
 			if( args[i].equals("-s") )
 				size = Integer.parseInt( args[ ++i ] );
+			if( args[i].equals("-l") )
+				length = Integer.parseInt( args[ ++i ] );
 			i++;
 		}
 
 		if( conversation_id == null || size ==  -1){
-			System.err.println( "-c [conversation_id] -s [size]");
+			System.err.println( "-c [conversation_id] -s [size] -l [length]");
 			System.exit(0);
 		}
 
-		reply.analyser(  reply.getReplies( conversation_id, size ) );
+		reply.analyser(  reply.getReplies( conversation_id, size ), length );
 	}
 }
 
