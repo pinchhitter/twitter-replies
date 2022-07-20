@@ -153,20 +153,22 @@ class Replies{
 	}
 
 	String capConvert(String word){
-		String s1 = word.substring(0, 1).toUpperCase();
-    		word = s1 + word.substring(1);
 		if( word.charAt(0) == '#')
     			word = word.substring(1);
+		if( word.length() < 4)	
+			word = word.toUpperCase();	
+		else{
+			String s1 = word.substring(0, 1).toUpperCase();
+    			word = s1 + word.substring(1);
+		}
 	return word.trim();
 	}
 
 	void addNNP(String word, String type ){
 
 		TreeMap<String, Integer> entityCount = NNPCount.get( type );
-
 		if( stopWords.contains( word.trim().toLowerCase() ) )
 			return;
-
 		if( entityCount == null )
 			entityCount  = new TreeMap<String, Integer>();
 
@@ -265,10 +267,8 @@ class Replies{
 		initCoreNLP();
 
 		for(String reply: replies){
-
 			CoreDocument doc = new CoreDocument( reply );
 			pipeline.annotate( doc );
-				
 			for (CoreEntityMention em : doc.entityMentions()){
 				addNE( em );
 			}
@@ -290,8 +290,6 @@ class Replies{
 					tag = tok.tag().trim();
 					original = tag;
 				}
-
-				//System.err.println( tag +" <> "+tags.get( tag ) );
 
 				if( tok.word().trim().charAt(0) == '@' ){
 					addNNP( tok.word().trim(), "TWITTER" );

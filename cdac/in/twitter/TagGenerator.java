@@ -30,9 +30,28 @@ import edu.stanford.nlp.ling.*;
 class TagGenerator{
 
 	StanfordCoreNLP pipeline = null;
+	Map<String,String> tagList; 
 
-	void TagGenerator(){
+	TagGenerator(){
+		tagList = new TreeMap<String, String>();
+	}
 
+	void addTag(String tags){
+		String[] toks = tags.split("\\|");
+		String add = "";	
+		for(String tag: toks){
+			if(add.length()==0)
+				add = tag;
+			else
+				add = add+"|"+tag;
+			tagList.put(add,"true");
+		}
+	}
+
+	void print(){
+		for(String key: tagList.keySet() ){
+			System.out.println(key);
+		}
 	}
 
 	void initCoreNLP(){
@@ -42,7 +61,6 @@ class TagGenerator{
 	}
 
 	void generate(String filename){
-
 		initCoreNLP();
 		try{
 			BufferedReader br = new BufferedReader( new FileReader( new File(filename) ));		
@@ -65,9 +83,11 @@ class TagGenerator{
 						else
 							name = name+" "+tok.word();
 					}
-					System.out.println(tag.trim()+"="+name.trim());
+					addTag( tag.trim() );
+					//System.out.println(tag.trim()+"="+name.trim());
 				}
 			}
+			print();
 		}catch(Exception e){
 			e.printStackTrace();
 		}
