@@ -29,6 +29,27 @@ import edu.stanford.nlp.ling.*;
 
 class SortMapByValue {
 
+	public static Map<String, Original> sortByComparatorOriginal(Map<String, Original> unsortMap, final boolean order){
+
+		List<Entry<String, Original>> list = new LinkedList<Entry<String, Original>>(unsortMap.entrySet());
+
+		Collections.sort(list, new Comparator<Entry<String, Original>>() {
+				public int compare(Entry<String, Original> o1, Entry<String, Original> o2) {
+				if (order) {
+				return o1.getValue().count.compareTo(o2.getValue().count);
+				}
+				else {
+				return o2.getValue().count.compareTo(o1.getValue().count);
+				}
+				}
+				});
+		Map<String, Original> sortedMap = new LinkedHashMap<String, Original>();
+		for (Entry<String, Original> entry : list) {
+			sortedMap.put(entry.getKey(), entry.getValue());
+		}
+		return sortedMap;
+	}
+
 	public static Map<String, Integer> sortByComparator(Map<String, Integer> unsortMap, final boolean order){
 
 		List<Entry<String, Integer>> list = new LinkedList<Entry<String, Integer>>(unsortMap.entrySet());
@@ -51,19 +72,29 @@ class SortMapByValue {
 	}
 }
 
+class Original{
+	String original;
+	Integer count;
+
+	Original(String original){
+		this.original = original;
+		this.count = 0;	
+	}
+}
+
 class Replies{
 
 	String authorizationBearer = "";
 	StanfordCoreNLP pipeline = null;
 	Map<String, TreeMap<String, Integer>> NECount;
-	Map<String, TreeMap<String, Integer>> NNPCount;
+	Map<String, TreeMap<String, Original>> NNPCount;
 	Map<String,String> tags;
 	Set<String> stopWords;
 
 	Replies(){
 
 		NECount = new TreeMap<String, TreeMap<String, Integer>>();
-		NNPCount = new TreeMap<String, TreeMap<String, Integer>>();
+		NNPCount = new TreeMap<String, TreeMap<String, Original>>();
 		tags = new TreeMap<String, String>();
 		stopWords = new TreeSet<String>();
 
@@ -139,49 +170,40 @@ class Replies{
 		NECount.put( em.entityType(), entityCount );
 	}
 
-	boolean isPresent(String word, String type){
-		word = capConvert( word );		
-		TreeMap<String, Integer> entityCount = NNPCount.get( type );
-		if( entityCount != null ){
-			Integer count = entityCount.get( word );
-			if( count != null){
-				return true;
-			}
-		}
-
-	return false;
-	}
-
-	String capConvert(String word){
-		if( word.charAt(0) == '#')
-    			word = word.substring(1);
-		if( word.length() < 4)	
-			word = word.toUpperCase();	
-		else{
-			String s1 = word.substring(0, 1).toUpperCase();
-    			word = s1 + word.substring(1);
-		}
-	return word.trim();
-	}
-
 	void addNNP(String word, String type ){
 
-		TreeMap<String, Integer> entityCount = NNPCount.get( type );
+		TreeMap<String, Original> entityCount = NNPCount.get( type );
+
 		if( stopWords.contains( word.trim().toLowerCase() ) )
 			return;
+
 		if( entityCount == null )
-			entityCount  = new TreeMap<String, Integer>();
+			entityCount  = new TreeMap<String, Original>();
 
-		Integer count = entityCount.get( word );
+		Original count = entityCount.get( word.toUpperCase() );
+
 		if( count == null )
-			count = 0;
-		count++;
-		entityCount.put( word, count );
-
+			count = new Original( word );
+		count.count++;
+		entityCount.put( word.toUpperCase(), count );
 		NNPCount.put( type,  entityCount);
 	}
 
+	void print( Map<String, TreeMap<String, Original>> NCount, int length, boolean flag){
+		for(String entityType: NCount.keySet() ){
+			Map<String, Original> sortedMap =  SortMapByValue.sortByComparatorOriginal( NCount.get( entityType ) , false);
+			int count = 0;
+			for(String entity: sortedMap.keySet() ){
+				System.out.println( entityType+", "+sortedMap.get( entity ).original+", "+ sortedMap.get( entity ).count );
+				count++;
+				if( count ==  length)
+					break;
+			}
+		}
+	}
+
 	void print( Map<String, TreeMap<String, Integer>> NCount, int length ){
+
 		for(String entityType: NCount.keySet() ){
 			Map<String,Integer> sortedMap =  SortMapByValue.sortByComparator( NCount.get( entityType ) , false);
 			int count = 0;
@@ -205,12 +227,16 @@ class Replies{
 		List<String> reply = new ArrayList<String>();
 		String[] cmd = new String[] {"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query=conversation_id:"+conversation_id+"&tweet.fields=in_reply_to_user_id,author_id,created_at,conversation_id", "--header", "Authorization:Bearer "+authorizationBearer};
 		//String[] cmd = new String[] {"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/counts/all?query=conversation_id:"+conversation_id+"&tweet.fields=in_reply_to_user_id,author_id,created_at,conversation_id&start_time=2006-03-21T00:00:01Z&grant_type=client_credentials", "--header", "Authorization:Bearer "+authorizationBearer};
+
+		/*
 		for(String c: cmd)
 			System.out.print(c+" ");
 		System.out.println();
+		*/
 
 		int count = 0;
 		try{
+			clearScreen();
 			while( true ){
 
 				try{
@@ -235,8 +261,9 @@ class Replies{
 						reply.add( map.get( "text") );
 						count++;
 					}
-					
-					System.err.println("replies count: "+count);
+					double done = ( count / (double) size ) * 100;
+					String strDouble = String.format("%.2f", done);
+					print(1,0, "Reading (tweets: "+count+"): "+strDouble+"% Completed");
 
 					if( count >= size)
 						break;
@@ -247,11 +274,11 @@ class Replies{
 					break;
 			
 				}
-
 			}
 		}catch(Exception e){
 			e.printStackTrace();
 		}
+		System.out.println();
 	return reply;
 	}		
 
@@ -265,10 +292,17 @@ class Replies{
 	void analyser(List<String> replies, int length, boolean isNER){
 
 		initCoreNLP();
-
+		//clearScreen();
+		double count = 0.0d;
 		for(String reply: replies){
+
 			CoreDocument doc = new CoreDocument( reply );
 			pipeline.annotate( doc );
+			count++;
+			double done = ( count / (double) replies.size() ) * 100;
+			String strDouble = String.format("%.2f", done);
+			print(31,0, "Processing:("+count+" Doc) "+strDouble+"% Completed");
+
 			for (CoreEntityMention em : doc.entityMentions()){
 				addNE( em );
 			}
@@ -292,6 +326,7 @@ class Replies{
 				}
 
 				if( tok.word().trim().charAt(0) == '@' ){
+
 					addNNP( tok.word().trim(), "TWITTER" );
 
 					if( NNP.trim().length() >  0 ){
@@ -299,9 +334,10 @@ class Replies{
                                         }
 					tag = "";
 					NNP = "";
+
 				}else{
 					if( tags.containsKey( tag ) ){
-						NNP = NNP.trim()+" "+capConvert ( tok.word().trim() );
+						NNP = NNP.trim()+" "+tok.word().trim();
 					}else {
 						 if( NNP.trim().length() >  0 ){
 							addNNP( NNP.trim(), "NER" );
@@ -350,7 +386,18 @@ class Replies{
 		if( isNER )
 			print( NECount, length );
 
-		print( NNPCount, length );
+		print( NNPCount, length, true );
+	}
+
+	void clearScreen(){
+		System.out.print("\033[H\033[2J");  
+		System.out.flush();  		
+	}
+
+	void print(int row,int column, String test){
+		char escCode = 0x1B;
+		//System.out.print(String.format("%c[%d;%df %s\n",escCode,row,column, test));
+		System.out.print(String.format("%c[%d;%df\b%s",escCode,row,column, test));
 	}
 
 	public static void main(String[] args) throws Throwable {
