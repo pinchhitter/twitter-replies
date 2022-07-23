@@ -28,20 +28,79 @@ import edu.stanford.nlp.pipeline.CoreEntityMention;
 import edu.stanford.nlp.ling.*;
 
 class Original{
+
 	String original;
 	Integer count;
+	PriorityQueue<TEntry> priorityQueue;
+	Map<String,Integer> counts;
 
 	Original(String original){
-		this.original = original;
+
+		this.original = Replies.cleanOriginal( original );
 		this.count = 0;	
+		this.priorityQueue = new PriorityQueue<TEntry>();
+		this.counts = new TreeMap<String, Integer>();	
+
+		this.counts.put( this.original, 1);
+		this.priorityQueue.add( new TEntry( this.original, 1 ) ) ;
 	}
+	
+	void add(String original){
+
+		original = Replies.cleanOriginal( original );
+		Integer count = counts.get( original );
+		if( count == null )
+			count = 0;
+		count++;	
+		TEntry entry = new TEntry( original, count );
+
+		priorityQueue.remove( entry );
+		priorityQueue.add( entry );
+
+		counts.put( original, count);
+	}
+
+	String getOriginal(){
+		return priorityQueue.peek().key;
+	}
+
+	void print(){
+		Iterator<TEntry> itr = priorityQueue.iterator();
+		System.err.println("--------- B -----------");
+		while( itr.hasNext() ){
+			TEntry e = itr.next();
+			System.err.println( e.key+" <> "+e.value);
+		}
+		System.err.println("--------- E -----------");
+	}
+}
+class TEntry implements Comparable<TEntry> {
+	String key;
+	Integer value;	
+   	public TEntry(String key, Integer value) {
+        	this.key = key;
+        	this.value = value;
+    	}
+
+	@Override
+    	public boolean equals(Object other) {
+		TEntry o = (TEntry) other;
+        	if (o == this) {
+            		return true;
+        	}else
+			return o.key.equals( this.key );
+	}
+    	@Override
+    	public int compareTo(TEntry other) {
+		if( other.key.equals( this.key ) )
+			return 0;
+        	return other.value.compareTo( this.value );
+    	}
 }
 
 class NEREntry implements Comparable<NEREntry> {
-
 	String key;
 	Original value;	
-
    	public NEREntry(String key, Original value) {
         	this.key = key;
         	this.value = value;
@@ -49,14 +108,12 @@ class NEREntry implements Comparable<NEREntry> {
 
 	@Override
     	public boolean equals(Object other) {
- 		
 		NEREntry o = (NEREntry) other;
         	if (o == this) {
             		return true;
         	}else
 			return o.key.equals( this.key );
 	}
-
     	@Override
     	public int compareTo(NEREntry other) {
 		if( other.key.equals( this.key ) )
@@ -68,7 +125,6 @@ class NEREntry implements Comparable<NEREntry> {
 class SortMapByValue {
 
 	public static Map<String, Original> sortByComparatorOriginal(Map<String, Original> unsortMap, final boolean order){
-
 		Map<String, Original> sortedMap = new LinkedHashMap<String, Original>();
 		try{
 
@@ -125,7 +181,7 @@ class Replies{
 
 	Map<String,String> ners;
 	Map<String,String> phrs;
-	Set<String> stopWords;
+	static Set<String> stopWords;
 
 	Replies(){
 
@@ -166,7 +222,7 @@ class Replies{
 		}
 	}
 
-	boolean validNER(String nnp){
+	static boolean validNER(String nnp){
 		String symbols = ";,@$%6i^&*()_+:'\"";
 		for(int i = 0; i < nnp.length(); i++)
 			if( symbols.indexOf( nnp.charAt( i ) ) >= 0 )
@@ -174,11 +230,26 @@ class Replies{
 		return true;
 	}
 
-	String cleanKey(String nnp){
+	public static String cleanOriginal(String original){
+		String[] tokens = original.split("\\s");
+		String word = "";
+		String symbols = ";.'\",!@$^*-+=<>/?~`|\\#";
+		for(String token: tokens){
+			if( symbols.indexOf( token.trim() ) >= 0  )
+				continue;
+			word = word.trim()+" "+token;
+		}
+		original = word.trim();
+	return original;
+	}
+
+	public static String cleanKey(String nnp){
 		String[] tokens = nnp.split("\\s");
-		String symbols = "#;.'\",!@#$%^*(){}[]-+=<>/?~`|/\\:";
+		String symbols = ";.'\",!@$%^*(){}[]-+=<>/?~`|/\\:";
 		String key = "";
 		for(String token: tokens){
+			if( stopWords.contains( token.trim().toLowerCase() ) )
+				continue;
 			boolean flag = false;
 			for(int i = 0; i < token.length(); i++){
 				if( symbols.indexOf( token.trim().charAt(i) ) >= 0  ){
@@ -190,10 +261,11 @@ class Replies{
 				continue;
 			key = key.trim()+" "+token;
 		}
-	return key.trim();
+		key = key.trim();
+	return key;
 	}
 
-	String clean(String NE){
+	public static String clean(String NE){
 		String[] tokens = NE.split("\\s");
 		if( tokens.length == 1){
 			String LNE = NE.trim().toLowerCase();		
@@ -266,37 +338,41 @@ class Replies{
 	}
 
 	void addNNP(String nnp, String type ){
-
+		String key = nnp;
 		if( type.equals("NER") ){
-			nnp = cleanKey( nnp );
-			if( nnp == null || nnp.trim().length() == 0)
+			key = cleanKey( nnp );
+			if( key == null || key.trim().length() == 0)
 			return;
 		}
 		
 		TreeMap<String, Original> entityCount = NNPCount.get( type );
+
 		if( entityCount == null )
 			entityCount  = new TreeMap<String, Original>();
-		Original count = entityCount.get( nnp.toUpperCase() );
+
+		Original count = entityCount.get( key.toUpperCase() );
+
 		if( count == null )
 			count = new Original( nnp );
+		else
+			count.add( nnp );	
 
-		NEREntry entry = new NEREntry( nnp.toUpperCase(), count );
+		NEREntry entry = new NEREntry( key.toUpperCase(), count );
 
 		if( type.equals("NER") && toppers.contains( entry ) ){
-
 			toppers.remove( entry );
 			count.count++;
-			entry = new NEREntry( nnp.toUpperCase(), count );
+			entry = new NEREntry( key.toUpperCase(), count );
 			toppers.add( entry );
 		}else{
 			count.count++;
 			if( type.equals("NER") ){
-				entry = new NEREntry( nnp.toUpperCase(), count );
+				entry = new NEREntry( key.toUpperCase(), count );
 				toppers.add( entry );
 			}
 		}
 
-		entityCount.put( nnp.toUpperCase(), count );
+		entityCount.put( key.toUpperCase(), count );
 		NNPCount.put( type,  entityCount);
 	}
 
@@ -307,7 +383,7 @@ class Replies{
 		int count = 1;
     		while( itr.hasNext()){
         		NEREntry entry = copyQueue.poll();
-			print( 2 + count, 0, count+". "+ entry.value.original+"  "+entry.value.count+"                                ");
+			print( 2 + count, 0, count+". "+ entry.value.getOriginal()+"  "+entry.value.count+"                                ");
 			if( count == top )
 				break;
 			count++;
@@ -320,7 +396,8 @@ class Replies{
 			Map<String, Original> sortedMap =  SortMapByValue.sortByComparatorOriginal( NCount.get( entityType ) , false);
 			int count = 0;
 			for(String entity: sortedMap.keySet() ){
-				System.out.println( entityType+", "+sortedMap.get( entity ).original+", "+ sortedMap.get( entity ).count );
+				System.out.println( entityType+", "+sortedMap.get( entity ).getOriginal()+", "+ sortedMap.get( entity ).count );
+				//sortedMap.get( entity ).print();
 				count++;
 				if( count ==  length)
 					break;
@@ -420,9 +497,11 @@ class Replies{
 	}
 
 	void analyser(List<String> replies, int length, boolean isNER){
+
 		initCoreNLP();
 		clearScreen();
 		double count = 0.0d;
+
 		for(String reply: replies){
 			CoreDocument doc = new CoreDocument( reply );
 			pipeline.annotate( doc );
@@ -519,7 +598,6 @@ class Replies{
 
 	void print(int row,int column, String test){
 		char escCode = 0x1B;
-		//System.out.print(String.format("%c[%d;%df %s\n",escCode,row,column, test));
 		System.out.print(String.format("%c[%d;%df\b%s",escCode,row,column, test));
 	}
 
