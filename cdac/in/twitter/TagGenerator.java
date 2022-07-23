@@ -95,9 +95,10 @@ class TagGenerator{
 
 	public static void main(String[] args) throws Throwable {
 		TagGenerator tg = new TagGenerator();
-		tg.generate("./files/list-of-movies.txt");
-		tg.generate("./files/companies.txt");
-		tg.generate("./files/names.txt");
+		//tg.generate("./files/list-of-movies.txt");
+		//tg.generate("./files/companies.txt");
+		//tg.generate("./files/names.txt");
+		tg.generate("./p.txt");
 		tg.print();
 	}
 }

@@ -27,25 +27,68 @@ import edu.stanford.nlp.pipeline.CoreSentence;
 import edu.stanford.nlp.pipeline.CoreEntityMention;
 import edu.stanford.nlp.ling.*;
 
+class Original{
+	String original;
+	Integer count;
+
+	Original(String original){
+		this.original = original;
+		this.count = 0;	
+	}
+}
+
+class NEREntry implements Comparable<NEREntry> {
+
+	String key;
+	Original value;	
+
+   	public NEREntry(String key, Original value) {
+        	this.key = key;
+        	this.value = value;
+    	}
+
+	@Override
+    	public boolean equals(Object other) {
+ 		
+		NEREntry o = (NEREntry) other;
+        	if (o == this) {
+            		return true;
+        	}else
+			return o.key.equals( this.key );
+	}
+
+    	@Override
+    	public int compareTo(NEREntry other) {
+		if( other.key.equals( this.key ) )
+			return 0;
+        	return other.value.count.compareTo( this.value.count );
+    	}
+}
+
 class SortMapByValue {
 
 	public static Map<String, Original> sortByComparatorOriginal(Map<String, Original> unsortMap, final boolean order){
 
-		List<Entry<String, Original>> list = new LinkedList<Entry<String, Original>>(unsortMap.entrySet());
-
-		Collections.sort(list, new Comparator<Entry<String, Original>>() {
-				public int compare(Entry<String, Original> o1, Entry<String, Original> o2) {
-				if (order) {
-				return o1.getValue().count.compareTo(o2.getValue().count);
-				}
-				else {
-				return o2.getValue().count.compareTo(o1.getValue().count);
-				}
-				}
-				});
 		Map<String, Original> sortedMap = new LinkedHashMap<String, Original>();
-		for (Entry<String, Original> entry : list) {
-			sortedMap.put(entry.getKey(), entry.getValue());
+		try{
+
+			List<Entry<String, Original>> list = new LinkedList<Entry<String, Original>>(unsortMap.entrySet());
+
+			Collections.sort( list, new Comparator<Entry<String, Original>>() {
+					public int compare(Entry<String, Original> o1, Entry<String, Original> o2) {
+					if (order) {
+						return o1.getValue().count.compareTo(o2.getValue().count);
+					}
+					else {
+						return o2.getValue().count.compareTo(o1.getValue().count);
+					}
+			}
+			});
+			for (Entry<String, Original> entry : list) {
+				sortedMap.put(entry.getKey(), entry.getValue());
+			}
+		}catch(Exception e){
+			// doing nothing 
 		}
 		return sortedMap;
 	}
@@ -72,31 +115,26 @@ class SortMapByValue {
 	}
 }
 
-class Original{
-	String original;
-	Integer count;
-
-	Original(String original){
-		this.original = original;
-		this.count = 0;	
-	}
-}
-
 class Replies{
 
 	String authorizationBearer = "";
 	StanfordCoreNLP pipeline = null;
 	Map<String, TreeMap<String, Integer>> NECount;
 	Map<String, TreeMap<String, Original>> NNPCount;
-	Map<String,String> tags;
+	PriorityQueue<NEREntry> toppers;
+
+	Map<String,String> ners;
+	Map<String,String> phrs;
 	Set<String> stopWords;
 
 	Replies(){
 
 		NECount = new TreeMap<String, TreeMap<String, Integer>>();
 		NNPCount = new TreeMap<String, TreeMap<String, Original>>();
-		tags = new TreeMap<String, String>();
+		ners = new TreeMap<String, String>();
+		phrs = new TreeMap<String, String>();
 		stopWords = new TreeSet<String>();
+		toppers = new PriorityQueue<NEREntry>();
 
 		try{
 			BufferedReader br = new BufferedReader( new FileReader( new File( "../properties.txt") ) );
@@ -106,10 +144,16 @@ class Replies{
 			String AccessTokenSecret = br.readLine().split(":")[1].trim();
 			authorizationBearer = br.readLine().split(":")[1].trim();
 
-			br = new BufferedReader( new FileReader( new File( "./files/tags.txt") ) );
+			br = new BufferedReader( new FileReader( new File( "./files/ners.txt") ) );
 			String line = null;
 			while( ( line = br.readLine() ) != null ){
-				tags.put( line.trim(), "TRUE" );
+				ners.put( line.trim(), "TRUE" );
+			}
+
+			br = new BufferedReader( new FileReader( new File( "./files/phrases.txt") ) );
+			line = null;
+			while( ( line = br.readLine() ) != null ){
+				phrs.put( line.trim(), "TRUE" );
 			}
 
 			br = new BufferedReader( new FileReader( new File( "./files/stopWords.txt") ) );
@@ -123,7 +167,6 @@ class Replies{
 	}
 
 	boolean validNER(String nnp){
-
 		String symbols = ";,@$%6i^&*()_+:'\"";
 		for(int i = 0; i < nnp.length(); i++)
 			if( symbols.indexOf( nnp.charAt( i ) ) >= 0 )
@@ -131,12 +174,30 @@ class Replies{
 		return true;
 	}
 
-	String clean(String NE){
+	String cleanKey(String nnp){
+		String[] tokens = nnp.split("\\s");
+		String symbols = "#;.'\",!@#$%^*(){}[]-+=<>/?~`|/\\:";
+		String key = "";
+		for(String token: tokens){
+			boolean flag = false;
+			for(int i = 0; i < token.length(); i++){
+				if( symbols.indexOf( token.trim().charAt(i) ) >= 0  ){
+					flag = true;
+					break;
+				}
+			}
+			if( flag )
+				continue;
+			key = key.trim()+" "+token;
+		}
+	return key.trim();
+	}
 
+	String clean(String NE){
 		String[] tokens = NE.split("\\s");
 		if( tokens.length == 1){
 			String LNE = NE.trim().toLowerCase();		
-		 	if( !stopWords.contains( LNE ) && validNER( LNE ) ){
+			if( !stopWords.contains( LNE ) && validNER( LNE ) ){
 				NE = Character.toUpperCase( NE.charAt(0) ) +""+ NE.substring(1);
 				return NE;
 			}
@@ -151,7 +212,7 @@ class Replies{
 				word = word +" "+tok;	
 		}
 
-	return word;
+		return word;
 	}
 
 	public static String expand(String shortenedUrl){
@@ -206,18 +267,51 @@ class Replies{
 
 	void addNNP(String nnp, String type ){
 
+		if( type.equals("NER") ){
+			nnp = cleanKey( nnp );
+			if( nnp == null || nnp.trim().length() == 0)
+			return;
+		}
+		
 		TreeMap<String, Original> entityCount = NNPCount.get( type );
-
 		if( entityCount == null )
 			entityCount  = new TreeMap<String, Original>();
-
 		Original count = entityCount.get( nnp.toUpperCase() );
-
 		if( count == null )
 			count = new Original( nnp );
-		count.count++;
+
+		NEREntry entry = new NEREntry( nnp.toUpperCase(), count );
+
+		if( type.equals("NER") && toppers.contains( entry ) ){
+
+			toppers.remove( entry );
+			count.count++;
+			entry = new NEREntry( nnp.toUpperCase(), count );
+			toppers.add( entry );
+		}else{
+			count.count++;
+			if( type.equals("NER") ){
+				entry = new NEREntry( nnp.toUpperCase(), count );
+				toppers.add( entry );
+			}
+		}
+
 		entityCount.put( nnp.toUpperCase(), count );
 		NNPCount.put( type,  entityCount);
+	}
+
+	void print( PriorityQueue<NEREntry> toppers, int top){
+		print(2,0, "------------NER------------");
+		Queue<NEREntry> copyQueue = new PriorityQueue<NEREntry>( toppers );
+    		Iterator<NEREntry> itr = copyQueue.iterator();
+		int count = 1;
+    		while( itr.hasNext()){
+        		NEREntry entry = copyQueue.poll();
+			print( 2 + count, 0, count+". "+ entry.value.original+"  "+entry.value.count+"                                ");
+			if( count == top )
+				break;
+			count++;
+		}
 	}
 
 	void print( Map<String, TreeMap<String, Original>> NCount, int length, boolean flag){
@@ -254,11 +348,10 @@ class Replies{
 		pipeline = new StanfordCoreNLP( props );
 	}
 
-	List<String> getReplies(String conversation_id, int size){
+	List<String> getReplies(String query, int size){
 
 		List<String> reply = new ArrayList<String>();
-		String[] cmd = new String[] {"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query=conversation_id:"+conversation_id+"&tweet.fields=in_reply_to_user_id,author_id,created_at,conversation_id", "--header", "Authorization:Bearer "+authorizationBearer};
-		//String[] cmd = new String[] {"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/counts/all?query=conversation_id:"+conversation_id+"&tweet.fields=in_reply_to_user_id,author_id,created_at,conversation_id&start_time=2006-03-21T00:00:01Z&grant_type=client_credentials", "--header", "Authorization:Bearer "+authorizationBearer};
+		String[] cmd = new String[] {"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query="+query+"&tweet.fields=in_reply_to_user_id,author_id,created_at,conversation_id", "--header", "Authorization:Bearer "+authorizationBearer};
 
 		/*
 		   for(String c: cmd)
@@ -298,12 +391,10 @@ class Replies{
 
 				if( count >= size)
 					break;
-				cmd = new String[]{"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query=conversation_id:"+conversation_id+"&tweet.fields=in_reply_to_user_id,author_id,created_at,conversation_id&next_token="+nToken, "--header", "Authorization:Bearer "+authorizationBearer};
 
+				cmd = new String[]{"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query="+query+"&tweet.fields=in_reply_to_user_id,author_id,created_at,conversation_id&next_token="+nToken, "--header", "Authorization:Bearer "+authorizationBearer};
 			}catch(Exception e){
-				//e.printStackTrace();
 				break;
-
 			}
 		}
 		System.out.println();
@@ -311,45 +402,46 @@ class Replies{
 	}		
 
 	boolean validNNP(String nnp){
-		String symbols = ";,@#$%6i^&*()_+:'\"";
+		String symbols = ";,$%6i^&*()_+:'\"";
 		if( symbols.indexOf( nnp ) >= 0 )
 			return false;
 		return true;
 	}
-	
-	void addNER(String NNP ){
-		if( NNP.length() >  0 ){
-			NNP = clean( NNP );
+
+	void addNER(String NNP, String type ){
+
+		if( NNP.length() >  0 ) {
+			if( type.equals("NER") || type.equals("PHRASE")){	
+				NNP = clean( NNP );
+			}
 			if( NNP != null )
-				addNNP( NNP, "NER" );
+				addNNP( NNP, type );
 		}
 	}
 
 	void analyser(List<String> replies, int length, boolean isNER){
 		initCoreNLP();
+		clearScreen();
 		double count = 0.0d;
 		for(String reply: replies){
-
 			CoreDocument doc = new CoreDocument( reply );
 			pipeline.annotate( doc );
 			count++;
 			double done = ( count / (double) replies.size() ) * 100;
 			String strDouble = String.format("%.2f", done);
-			print(31,0, "Processing:("+count+" Doc) "+strDouble+"% Completed");
-
-			
+			print(1,0, "Processing:("+count+" Doc) "+strDouble+"% Completed");
 			if( isNER ){
 				for (CoreEntityMention em : doc.entityMentions()){
 					addNE( em );
 				}
 			}
-
 			String NNP = "";
+			String PR = "";
+			String pTag = "";
 			String tag = "";
 			String original = "";
 
 			for (CoreLabel tok : doc.tokens()) {
-
 				/*
 				   if( tok.word().trim().length() > 0)
 				   System.err.println( tok.tag()+" | "+tok.word());
@@ -362,42 +454,61 @@ class Replies{
 					tag = tok.tag().trim();
 					original = tag;
 				}
+
+				/*
+
+				   if( pTag.trim().length() > 0){
+				   pTag = pTag+"|"+tok.tag().trim();
+				   }else{
+				   pTag = tag;
+				   }
+
+				 */
+
 				if( tok.word().trim().indexOf("http:") >= 0 || tok.word().trim().indexOf("https:") >= 0  ){
-
-					addNNP( expand ( tok.word().trim() ), "URL" );
-					addNER( NNP.trim() );
-					tag = ""; NNP = "";
-
+					addNER( expand ( tok.word().trim() ), "URL" );
+					//tag = ""; NNP = ""; pTag = ""; PR = "";
 				}else if( tok.word().trim().charAt(0) == '@' ){
+					addNER( tok.word().trim(), "TWITTER" );
+					//tag = ""; NNP = ""; pTag = ""; PR = "";
 
-					addNNP( tok.word().trim(), "TWITTER" );
-					addNER( NNP.trim() );
+				}else if( ners.containsKey( tag ) ){
+					NNP = NNP.trim()+" "+tok.word().trim();
+				}else {
+					addNER( NNP.trim(), "NER" );
 					tag = ""; NNP = "";
-
-				}else{
-					if( tags.containsKey( tag ) ){
-						NNP = NNP.trim()+" "+tok.word().trim();
-					}else {
-						addNER( NNP.trim() );
-						tag = ""; NNP = "";
-					}
 				}
-			}
-			addNER( NNP.trim() );
-		/*
 
-			for (CoreSentence sent : doc.sentences()) {
-				System.err.println(sent.text());
-			}
+				/*
 
-			System.out.println("tokens and ner tags");
-			String tokensAndNERTags = doc.tokens().stream().map(token -> "("+token.word()+","+token.ner()+")").collect( Collectors.joining(" "));
-			System.err.println(tokensAndNERTags);
-		 */
+				   if( phrs.containsKey( pTag ) ){
+				   PR = PR.trim()+" "+tok.word().trim();
+				   } else {
+				   addNER( PR.trim(), "PHRASE");
+				   pTag = ""; PR = "";
+				   }
+				 */	
+			}
+			addNER( NNP.trim(),"NER" );
+			if( count % 2 == 0 ){
+				print( toppers, 10 );
+			}
+			//addNER( PR.trim(),"PHRASE" );
+			/*
+			   for (CoreSentence sent : doc.sentences()) {
+			   System.err.println(sent.text());
+			   }
+
+			   System.out.println("tokens and ner ners");
+			   String tokensAndNERTags = doc.tokens().stream().map(token -> "("+token.word()+","+token.ner()+")").collect( Collectors.joining(" "));
+			   System.err.println(tokensAndNERTags);
+			 */
 		}
 		if( isNER )
 			print( NECount, length );
-		
+
+		clearScreen();	
+		System.out.println("--------------------------------");
 		print( NNPCount, length, true );
 	}
 
@@ -416,28 +527,40 @@ class Replies{
 
 		Replies reply = new Replies();
 		String conversation_id = null;
+		String search = null;
 		int i = 0;
 		int size = -1;
 		int length = 20;
 		boolean isNER = false;
 
 		while( i < args.length ){
-			if( args[i].equals("-cid") || args[i].equals("-c") )
+			if( args[i].equals("-ci") || args[i].equals("-c") )
 				conversation_id = args[ ++i ];
-			if( args[i].equals("-s") )
+			if( args[i].equals("-se") || args[i].equals("-s") )
+				search = args[ ++i ];
+			if( args[i].equals("-sz") )
 				size = Integer.parseInt( args[ ++i ] );
-			if( args[i].equals("-l") )
+			if( args[i].equals("-ln") )
 				length = Integer.parseInt( args[ ++i ] );
-			if( args[i].equals("-n") )
+			if( args[i].equals("-ne") )
 				isNER = true;
 			i++;
 		}
 
-		if( conversation_id == null || size ==  -1){
-			System.err.println( "-c <conversation_id> -s <size> -l <length> -n [NER]");
+		if( ( conversation_id == null && search == null ) || size ==  -1){
+			System.err.println( "-ci <conversation_id> -se <search-key> -sz <size> -ln <length> -ne [NER]");
 			System.exit(0);
 		}
-		reply.analyser(  reply.getReplies( conversation_id, size ), length, isNER );
+
+		String query = "";
+
+		if( conversation_id != null ){
+			query = "conversation_id:"+conversation_id;
+		}else if( search != null ){
+			query = search;
+		}
+
+		reply.analyser(  reply.getReplies( query, size ), length, isNER );
 	}
 }
 
