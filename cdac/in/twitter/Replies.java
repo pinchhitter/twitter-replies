@@ -31,6 +31,9 @@ class Original{
 
 	String original;
 	Integer count;
+	Long likeCount;
+	Long retweetCount;		
+
 	PriorityQueue<TEntry> priorityQueue;
 	Map<String,Integer> counts;
 
@@ -38,6 +41,22 @@ class Original{
 
 		this.original = Replies.cleanOriginal( original );
 		this.count = 0;	
+		this.likeCount = (Long) 0L;
+		this.retweetCount = (Long) 0L;
+		this.priorityQueue = new PriorityQueue<TEntry>();
+		this.counts = new TreeMap<String, Integer>();	
+
+		this.counts.put( this.original, 1);
+
+		this.priorityQueue.add( new TEntry( this.original, 1 ) ) ;
+	}
+
+	Original(String original, Long likeCount, Long retweetCount){
+
+		this.original = Replies.cleanOriginal( original );
+		this.count = 0;	
+		this.likeCount = likeCount;
+		this.retweetCount = retweetCount;
 		this.priorityQueue = new PriorityQueue<TEntry>();
 		this.counts = new TreeMap<String, Integer>();	
 
@@ -52,6 +71,7 @@ class Original{
 		if( count == null )
 			count = 0;
 		count++;	
+
 		TEntry entry = new TEntry( original, count );
 
 		priorityQueue.remove( entry );
@@ -65,6 +85,7 @@ class Original{
 	}
 
 	void print(){
+
 		Iterator<TEntry> itr = priorityQueue.iterator();
 		System.err.println("--------- B -----------");
 		while( itr.hasNext() ){
@@ -74,7 +95,9 @@ class Original{
 		System.err.println("--------- E -----------");
 	}
 }
+
 class TEntry implements Comparable<TEntry> {
+
 	String key;
 	Integer value;	
    	public TEntry(String key, Integer value) {
@@ -99,8 +122,10 @@ class TEntry implements Comparable<TEntry> {
 }
 
 class NEREntry implements Comparable<NEREntry> {
+
 	String key;
 	Original value;	
+
    	public NEREntry(String key, Original value) {
         	this.key = key;
         	this.value = value;
@@ -337,7 +362,8 @@ class Replies{
 		NECount.put( em.entityType(), entityCount );
 	}
 
-	void addNNP(String nnp, String type ){
+	void addNNP(String nnp, String type,Long likeCount, Long retweetCount ){
+
 		String key = nnp;
 		if( type.equals("NER") ){
 			key = cleanKey( nnp );
@@ -353,19 +379,27 @@ class Replies{
 		Original count = entityCount.get( key.toUpperCase() );
 
 		if( count == null )
-			count = new Original( nnp );
+			count = new Original( nnp, likeCount, retweetCount );
 		else
 			count.add( nnp );	
 
 		NEREntry entry = new NEREntry( key.toUpperCase(), count );
 
 		if( type.equals("NER") && toppers.contains( entry ) ){
+
 			toppers.remove( entry );
+
 			count.count++;
+			count.likeCount += likeCount;
+			count.retweetCount += retweetCount;	
+
 			entry = new NEREntry( key.toUpperCase(), count );
 			toppers.add( entry );
 		}else{
 			count.count++;
+			count.likeCount += likeCount;
+			count.retweetCount += retweetCount;	
+			
 			if( type.equals("NER") ){
 				entry = new NEREntry( key.toUpperCase(), count );
 				toppers.add( entry );
@@ -376,18 +410,31 @@ class Replies{
 		NNPCount.put( type,  entityCount);
 	}
 
-	void print( PriorityQueue<NEREntry> toppers, int top){
-		print(2,0, "------------NER------------");
+	void print( PriorityQueue<NEREntry> toppers, int top, int noOfTweets){
+
+		print(2, 0," ___________________________________________________________________");
+
+		String formated = String.format("| #No of Tweets: %-6d              |  count   |  Like   | Retweet |", noOfTweets);
+		print(3, 0, formated );
+
+		print(4, 0,"|____________________________________|__________|_________|_________|");
+
 		Queue<NEREntry> copyQueue = new PriorityQueue<NEREntry>( toppers );
     		Iterator<NEREntry> itr = copyQueue.iterator();
-		int count = 1;
+
+		int count = 5;
+		int rank = 0;
+
     		while( itr.hasNext()){
+			rank++;
         		NEREntry entry = copyQueue.poll();
-			print( 2 + count, 0, count+". "+ entry.value.getOriginal()+"  "+entry.value.count+"                                ");
-			if( count == top )
+			formated = String.format("| %2d. %-30s | %7d  | %7d | %7d |", rank, entry.value.getOriginal(), entry.value.count, entry.value.likeCount, entry.value.retweetCount );
+			print( count, 0, formated); 
+			if( rank == top )
 				break;
 			count++;
 		}
+		print( count + 1, 0,"|____________________________________|__________|_________|_________|");
 	}
 
 	void print( Map<String, TreeMap<String, Original>> NCount, int length, boolean flag){
@@ -425,10 +472,97 @@ class Replies{
 		pipeline = new StanfordCoreNLP( props );
 	}
 
+	void getRuntimeReplies(String query, int length){
+
+		initCoreNLP();
+		clearScreen();
+
+		//String[] cmd = new String[] {"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query="+query+"&tweet.fields=in_reply_to_user_id,author_id,created_at,conversation_id", "--header", "Authorization:Bearer "+authorizationBearer};
+		String[] cmd = new String[] {"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query="+query+"&tweet.fields=in_reply_to_user_id,author_id,geo,created_at,public_metrics,conversation_id", "--header", "Authorization:Bearer "+authorizationBearer};
+
+		int count = 0;
+
+		while( true ){
+
+			try{
+				ProcessBuilder builder = new ProcessBuilder( cmd );
+				Process process = builder.start();
+				BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+				String replies = "";
+				String line = null;
+				while ((line = reader.readLine()) != null) {
+					replies += line;
+				}
+				process.waitFor();
+
+				if( replies.trim().length() == 0 )
+					break;
+
+				JSONObject obj = ( JSONObject ) ( new JSONParser().parse( replies ) );
+				String nToken = (String )( (JSONObject) obj.get("meta") ).get("next_token");
+				JSONArray arr = (JSONArray) obj.get("data");
+				Iterator itr = arr.iterator();
+
+				while ( itr.hasNext() ) {
+
+					JSONObject jo = (JSONObject) itr.next();
+					String tweet = (String ) jo.get("text");
+					JSONObject pm = ( JSONObject ) jo.get("public_metrics");
+
+					Long likeCount  = (Long)  pm.get("like_count");
+					Long retweetCount  = (Long)  pm.get("retweet_count");
+
+					CoreDocument doc = new CoreDocument( tweet );
+					pipeline.annotate( doc );
+
+					String NNP = "";
+					String PR = "";
+					String tag = "";
+					String original = "";
+					count++;
+					print(1,0, "Reading Done:  "+count+" {} {"+likeCount+"} {"+retweetCount+"}");
+
+					for (CoreLabel tok : doc.tokens()) {
+
+						if( tag.trim().length() > 0 ){
+							original = tag;
+							tag = tag+"|"+tok.tag().trim();
+						}else{ 
+							tag = tok.tag().trim();
+							original = tag;
+						}
+					
+						if( tok.word().trim().indexOf("http:") >= 0 || tok.word().trim().indexOf("https:") >= 0  ){
+							addNER( expand ( tok.word().trim() ), "URL", likeCount, retweetCount );
+						}else if( tok.word().trim().charAt(0) == '@' ){
+							addNER( tok.word().trim(), "TWITTER", likeCount, retweetCount );
+						}else if( ners.containsKey( tag ) ){
+							NNP = NNP.trim()+" "+tok.word().trim();
+						}else {
+							addNER( NNP.trim(), "NER" , likeCount, retweetCount );
+							tag = ""; NNP = "";
+						}
+					}
+					count++;
+					addNER( NNP.trim(),"NER", likeCount, retweetCount );
+					print( toppers, 10, count );
+				}
+				cmd = new String[]{"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query="+query+"&tweet.fields=in_reply_to_user_id,author_id,created_at,geo,conversation_id,public_metrics&next_token="+nToken, "--header", "Authorization:Bearer "+authorizationBearer};
+
+				//cmd = new String[]{"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query="+query+"&tweet.fields=in_reply_to_user_id,author_id,created_at,conversation_id&next_token="+nToken, "--header", "Authorization:Bearer "+authorizationBearer};
+			}catch(Exception e){
+				break;
+			}
+		}
+		print( NNPCount, length, true );
+
+	}
+
 	List<String> getReplies(String query, int size){
 
 		List<String> reply = new ArrayList<String>();
-		String[] cmd = new String[] {"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query="+query+"&tweet.fields=in_reply_to_user_id,author_id,created_at,conversation_id", "--header", "Authorization:Bearer "+authorizationBearer};
+		//String[] cmd = new String[] {"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query="+query+"&tweet.fields=in_reply_to_user_id,author_id,created_at,conversation_id", "--header", "Authorization:Bearer "+authorizationBearer};
+		String[] cmd = new String[] {"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query="+query+"&tweet.fields=in_reply_to_user_id,author_id,geo,created_at,public_metrics,conversation_id&sort_order=relevancy", "--header", "Authorization:Bearer "+authorizationBearer};
 
 		/*
 		   for(String c: cmd)
@@ -452,7 +586,6 @@ class Replies{
 				process.waitFor();
 				if( replies.trim().length() == 0 )
 					break;
-
 				JSONObject obj = ( JSONObject ) ( new JSONParser().parse( replies ) );
 				String nToken = (String )( (JSONObject) obj.get("meta") ).get("next_token");
 				JSONArray arr = (JSONArray) obj.get("data");
@@ -469,7 +602,7 @@ class Replies{
 				if( count >= size)
 					break;
 
-				cmd = new String[]{"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query="+query+"&tweet.fields=in_reply_to_user_id,author_id,created_at,conversation_id&next_token="+nToken, "--header", "Authorization:Bearer "+authorizationBearer};
+				cmd = new String[]{"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query="+query+"&tweet.fields=in_reply_to_user_id,author_id,created_at,geo,conversation_id,public_metrics&sort_order=relevancy&next_token="+nToken, "--header", "Authorization:Bearer "+authorizationBearer};
 			}catch(Exception e){
 				break;
 			}
@@ -485,14 +618,14 @@ class Replies{
 		return true;
 	}
 
-	void addNER(String NNP, String type ){
+	void addNER(String NNP, String type, Long likeCount, Long retweetCount ){
 
 		if( NNP.length() >  0 ) {
 			if( type.equals("NER") || type.equals("PHRASE")){	
 				NNP = clean( NNP );
 			}
 			if( NNP != null )
-				addNNP( NNP, type );
+				addNNP( NNP, type, likeCount, retweetCount);
 		}
 	}
 
@@ -501,7 +634,7 @@ class Replies{
 		initCoreNLP();
 		clearScreen();
 		double count = 0.0d;
-
+		int noOfTweets = 0;
 		for(String reply: replies){
 			CoreDocument doc = new CoreDocument( reply );
 			pipeline.annotate( doc );
@@ -545,16 +678,16 @@ class Replies{
 				 */
 
 				if( tok.word().trim().indexOf("http:") >= 0 || tok.word().trim().indexOf("https:") >= 0  ){
-					addNER( expand ( tok.word().trim() ), "URL" );
+					addNER( expand ( tok.word().trim() ), "URL" , 0L, 0L);
 					//tag = ""; NNP = ""; pTag = ""; PR = "";
 				}else if( tok.word().trim().charAt(0) == '@' ){
-					addNER( tok.word().trim(), "TWITTER" );
+					addNER( tok.word().trim(), "TWITTER", 0L, 0L );
 					//tag = ""; NNP = ""; pTag = ""; PR = "";
 
 				}else if( ners.containsKey( tag ) ){
 					NNP = NNP.trim()+" "+tok.word().trim();
 				}else {
-					addNER( NNP.trim(), "NER" );
+					addNER( NNP.trim(), "NER" , 0L, 0L);
 					tag = ""; NNP = "";
 				}
 
@@ -568,9 +701,10 @@ class Replies{
 				   }
 				 */	
 			}
-			addNER( NNP.trim(),"NER" );
+			addNER( NNP.trim(),"NER" , 0L, 0L);
+			noOfTweets++;
 			if( count % 2 == 0 ){
-				print( toppers, 10 );
+				print( toppers, 10,  noOfTweets );
 			}
 			//addNER( PR.trim(),"PHRASE" );
 			/*
@@ -610,6 +744,7 @@ class Replies{
 		int size = -1;
 		int length = 20;
 		boolean isNER = false;
+		boolean runtime = false;
 
 		while( i < args.length ){
 			if( args[i].equals("-ci") || args[i].equals("-c") )
@@ -622,11 +757,13 @@ class Replies{
 				length = Integer.parseInt( args[ ++i ] );
 			if( args[i].equals("-ne") )
 				isNER = true;
+			if( args[i].equals("-r") ||  args[i].equals("-run") )
+				runtime = true;
 			i++;
 		}
 
 		if( ( conversation_id == null && search == null ) || size ==  -1){
-			System.err.println( "-ci <conversation_id> -se <search-key> -sz <size> -ln <length> -ne [NER]");
+			System.err.println( "-ci <conversation_id> -se <search-key> -sz <size> -ln <length> -ne [NER] -r/-run [runtime]");
 			System.exit(0);
 		}
 
@@ -638,7 +775,12 @@ class Replies{
 			query = search;
 		}
 
-		reply.analyser(  reply.getReplies( query, size ), length, isNER );
+		if( runtime )
+			reply.getRuntimeReplies( query, length );
+		else
+			reply.analyser(  reply.getReplies( query, size ), length, isNER );
+
+		System.out.println("-------------- END -------------------");
 	}
 }
 

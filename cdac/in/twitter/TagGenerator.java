@@ -44,6 +44,7 @@ class TagGenerator{
 				add = tag;
 			else
 				add = add+"|"+tag;
+			System.out.println("Added: "+add);
 			tagList.put(add,"true");
 		}
 	}
@@ -84,7 +85,7 @@ class TagGenerator{
 							name = name+" "+tok.word();
 					}
 					addTag( tag.trim() );
-					//System.out.println(tag.trim()+"="+name.trim());
+					System.out.println(tag.trim()+" = "+name.trim());
 				}
 			}
 			//print();
@@ -98,7 +99,7 @@ class TagGenerator{
 		//tg.generate("./files/list-of-movies.txt");
 		//tg.generate("./files/companies.txt");
 		//tg.generate("./files/names.txt");
-		tg.generate("./p.txt");
+		tg.generate("./files/videogames.txt");
 		tg.print();
 	}
 }
