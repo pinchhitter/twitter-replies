@@ -412,23 +412,27 @@ class Replies{
 
 	void print( PriorityQueue<NEREntry> toppers, int top, int noOfTweets){
 
-		print(2, 0," ___________________________________________________________________");
+		print(3, 0," ___________________________________________________________________");
 
 		String formated = String.format("| #No of Tweets: %-6d              |  count   |  Like   | Retweet |", noOfTweets);
-		print(3, 0, formated );
+		print(4, 0, formated );
 
-		print(4, 0,"|____________________________________|__________|_________|_________|");
+		print(5, 0,"|____________________________________|__________|_________|_________|");
 
 		Queue<NEREntry> copyQueue = new PriorityQueue<NEREntry>( toppers );
     		Iterator<NEREntry> itr = copyQueue.iterator();
 
-		int count = 5;
+		int count = 6;
 		int rank = 0;
 
     		while( itr.hasNext()){
 			rank++;
         		NEREntry entry = copyQueue.poll();
-			formated = String.format("| %2d. %-30s | %7d  | %7d | %7d |", rank, entry.value.getOriginal(), entry.value.count, entry.value.likeCount, entry.value.retweetCount );
+			String value = entry.value.getOriginal().trim();
+			if( value.length() > 30 ){
+				value = value.substring(0,29);
+			}
+			formated = String.format("| %2d. %-30s | %7d  | %7d | %7d |                                     ", rank, value, entry.value.count, entry.value.likeCount, entry.value.retweetCount );
 			print( count, 0, formated); 
 			if( rank == top )
 				break;
@@ -472,19 +476,61 @@ class Replies{
 		pipeline = new StanfordCoreNLP( props );
 	}
 
-	void getRuntimeReplies(String query, int length){
+	void getRuntimeReplies(String query, int length, String originalKey){
 
 		initCoreNLP();
 		clearScreen();
 
-		//String[] cmd = new String[] {"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query="+query+"&tweet.fields=in_reply_to_user_id,author_id,created_at,conversation_id", "--header", "Authorization:Bearer "+authorizationBearer};
+		query = query.replaceAll("\\s", "%20");
+
 		String[] cmd = new String[] {"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query="+query+"&tweet.fields=in_reply_to_user_id,author_id,geo,created_at,public_metrics,conversation_id", "--header", "Authorization:Bearer "+authorizationBearer};
+		String[] ocmd = null;
+
+		if( query.indexOf("conversation_id") >= 0){
+			ocmd = new String[] { "curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets?ids="+originalKey+"&tweet.fields=attachments,author_id,context_annotations,created_at,entities,geo,id,in_reply_to_user_id,lang,possibly_sensitive,public_metrics,referenced_tweets,source,text,withheld&expansions=referenced_tweets.id", "--header", "Authorization: Bearer "+authorizationBearer};
+		}
+		
 
 		int count = 0;
-
 		while( true ){
-
 			try{
+				if( count == 0 && ocmd != null ){
+
+					ProcessBuilder builder = new ProcessBuilder( ocmd );
+					Process process = builder.start();
+					BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+
+					String mainTweet = "";
+					String line = null;
+					while ((line = reader.readLine()) != null) {
+						mainTweet += line;
+					}
+
+					process.waitFor();
+					JSONObject obj =  ( JSONObject ) ( new JSONParser().parse( mainTweet ) );
+					JSONArray arr = (JSONArray) obj.get("data");
+					Iterator itr = arr.iterator();
+
+					while ( itr.hasNext() ) {
+
+						JSONObject jo = (JSONObject) itr.next();
+						String tweet = (String ) jo.get("text");
+						JSONObject pm = ( JSONObject ) jo.get("public_metrics");
+						Long likes  = (Long)  pm.get("like_count");
+						Long retweet  = (Long)  pm.get("retweet_count");
+						Long reply  = (Long)  pm.get("reply_count");
+
+						String formated1 = String.format("Tweet: %-60s",tweet);
+						String formated2 = String.format("Replies:%-4d, Likes:%-4d, Retweets:%-4d",likes,retweet,reply);
+
+						print(1,0, formated1);
+						print(2,0, formated2);
+					}
+				}else if( count == 0){
+					print(1,0, "Search For: "+originalKey);
+				}
+
+				
 				ProcessBuilder builder = new ProcessBuilder( cmd );
 				Process process = builder.start();
 				BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
@@ -501,6 +547,7 @@ class Replies{
 				JSONObject obj = ( JSONObject ) ( new JSONParser().parse( replies ) );
 				String nToken = (String )( (JSONObject) obj.get("meta") ).get("next_token");
 				JSONArray arr = (JSONArray) obj.get("data");
+
 				Iterator itr = arr.iterator();
 
 				while ( itr.hasNext() ) {
@@ -520,7 +567,6 @@ class Replies{
 					String tag = "";
 					String original = "";
 					count++;
-					print(1,0, "Reading Done:  "+count+" {} {"+likeCount+"} {"+retweetCount+"}");
 
 					for (CoreLabel tok : doc.tokens()) {
 
@@ -561,8 +607,7 @@ class Replies{
 	List<String> getReplies(String query, int size){
 
 		List<String> reply = new ArrayList<String>();
-		//String[] cmd = new String[] {"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query="+query+"&tweet.fields=in_reply_to_user_id,author_id,created_at,conversation_id", "--header", "Authorization:Bearer "+authorizationBearer};
-		String[] cmd = new String[] {"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query="+query+"&tweet.fields=in_reply_to_user_id,author_id,geo,created_at,public_metrics,conversation_id&sort_order=relevancy", "--header", "Authorization:Bearer "+authorizationBearer};
+		String[] cmd = new String[] {"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query="+query+"&tweet.fields=in_reply_to_user_id,author_id,created_at,conversation_id", "--header", "Authorization:Bearer "+authorizationBearer};
 
 		/*
 		   for(String c: cmd)
@@ -602,7 +647,7 @@ class Replies{
 				if( count >= size)
 					break;
 
-				cmd = new String[]{"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query="+query+"&tweet.fields=in_reply_to_user_id,author_id,created_at,geo,conversation_id,public_metrics&sort_order=relevancy&next_token="+nToken, "--header", "Authorization:Bearer "+authorizationBearer};
+				cmd = new String[]{"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query="+query+"&tweet.fields=in_reply_to_user_id,author_id,created_at,geo,conversation_id,public_metrics&next_token="+nToken, "--header", "Authorization:Bearer "+authorizationBearer};
 			}catch(Exception e){
 				break;
 			}
@@ -768,17 +813,21 @@ class Replies{
 		}
 
 		String query = "";
+		String key = "";
 
 		if( conversation_id != null ){
 			query = "conversation_id:"+conversation_id;
+			key = conversation_id;
 		}else if( search != null ){
 			query = search;
+			key = search;
 		}
 
-		if( runtime )
-			reply.getRuntimeReplies( query, length );
-		else
+		if( runtime ){
+			reply.getRuntimeReplies( query, length, key );
+		}else{
 			reply.analyser(  reply.getReplies( query, size ), length, isNER );
+		}
 
 		System.out.println("-------------- END -------------------");
 	}
