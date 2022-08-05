@@ -202,7 +202,10 @@ class Replies{
 	StanfordCoreNLP pipeline = null;
 	Map<String, TreeMap<String, Integer>> NECount;
 	Map<String, TreeMap<String, Original>> NNPCount;
-	PriorityQueue<NEREntry> toppers;
+	Map<String, TreeMap<String, Original>> sentenceCount;
+		
+	PriorityQueue<NEREntry> NEToppers;
+	PriorityQueue<NEREntry> SEToppers;
 
 	Map<String,String> ners;
 	Map<String,String> phrs;
@@ -212,10 +215,14 @@ class Replies{
 
 		NECount = new TreeMap<String, TreeMap<String, Integer>>();
 		NNPCount = new TreeMap<String, TreeMap<String, Original>>();
+		sentenceCount = new TreeMap<String, TreeMap<String, Original>>();
+
 		ners = new TreeMap<String, String>();
 		phrs = new TreeMap<String, String>();
 		stopWords = new TreeSet<String>();
-		toppers = new PriorityQueue<NEREntry>();
+
+		NEToppers = new PriorityQueue<NEREntry>();
+		SEToppers = new PriorityQueue<NEREntry>();
 
 		try{
 			BufferedReader br = new BufferedReader( new FileReader( new File( "../properties.txt") ) );
@@ -269,6 +276,7 @@ class Replies{
 	}
 
 	public static String cleanKey(String nnp){
+
 		String[] tokens = nnp.split("\\s");
 		String symbols = ";.'\",!@$%^*(){}[]-+=<>/?~`|/\\:";
 		String key = "";
@@ -284,25 +292,30 @@ class Replies{
 			}
 			if( flag )
 				continue;
-			key = key.trim()+" "+token;
+			key = key.trim()+""+token;
 		}
 		key = key.trim();
 	return key;
 	}
 
 	public static String clean(String NE){
+
 		String[] tokens = NE.split("\\s");
+
 		if( tokens.length == 1){
 			String LNE = NE.trim().toLowerCase();		
 			if( !stopWords.contains( LNE ) && validNER( LNE ) ){
-				NE = Character.toUpperCase( NE.charAt(0) ) +""+ NE.substring(1);
+				if( NE.length() > 1)
+					NE = Character.toUpperCase( NE.charAt(0) ) +""+ NE.substring(1);
 				return NE;
 			}
 			return null;
 		}
 		String word = "";
 		for(String tok: tokens){
-			tok = Character.toUpperCase( tok.charAt(0) )  + tok.substring(1);
+			if( tok.length() > 1 )
+				tok = Character.toUpperCase( tok.charAt(0) )  + tok.substring(1);
+
 			if( word.length() == 0)
 				word = tok;
 			else
@@ -365,7 +378,8 @@ class Replies{
 	void addNNP(String nnp, String type,Long likeCount, Long retweetCount ){
 
 		String key = nnp;
-		if( type.equals("NER") ){
+
+		if( type.equals("NER") || type.equals("SENTENCE") ){
 			key = cleanKey( nnp );
 			if( key == null || key.trim().length() == 0)
 			return;
@@ -385,16 +399,16 @@ class Replies{
 
 		NEREntry entry = new NEREntry( key.toUpperCase(), count );
 
-		if( type.equals("NER") && toppers.contains( entry ) ){
+		if( type.equals("NER") && NEToppers.contains( entry ) ){
 
-			toppers.remove( entry );
+			NEToppers.remove( entry );
 
 			count.count++;
 			count.likeCount += likeCount;
 			count.retweetCount += retweetCount;	
 
 			entry = new NEREntry( key.toUpperCase(), count );
-			toppers.add( entry );
+			NEToppers.add( entry );
 		}else{
 			count.count++;
 			count.likeCount += likeCount;
@@ -402,27 +416,47 @@ class Replies{
 			
 			if( type.equals("NER") ){
 				entry = new NEREntry( key.toUpperCase(), count );
-				toppers.add( entry );
+				NEToppers.add( entry );
 			}
 		}
 
+		if( type.equals("SENTENCE") && SEToppers.contains( entry ) ){
+
+			SEToppers.remove( entry );
+			count.count++;
+			count.likeCount += likeCount;
+			count.retweetCount += retweetCount;	
+
+			entry = new NEREntry( key.toUpperCase(), count );
+			SEToppers.add( entry );
+		}else{
+			count.count++;
+			count.likeCount += likeCount;
+			count.retweetCount += retweetCount;	
+
+			if( type.equals("SENTENCE") ){
+				entry = new NEREntry( key.toUpperCase(), count );
+				SEToppers.add( entry );
+			}
+
+		}
 		entityCount.put( key.toUpperCase(), count );
 		NNPCount.put( type,  entityCount);
 	}
 
-	void print( PriorityQueue<NEREntry> toppers, int top, int noOfTweets){
+	void print( PriorityQueue<NEREntry> NEToppers, int top, int noOfTweets, int start, String header){
 
-		print(3, 0," ___________________________________________________________________");
+		print(start + 3, 0," ___________________________________________________________________");
 
-		String formated = String.format("| #No of Tweets: %-6d              |  count   |  Like   | Retweet |", noOfTweets);
-		print(4, 0, formated );
+		String formated = String.format("| #%s: %-6d |  count   |  Like   | Retweet |", header, noOfTweets);
+		print(start + 4, 0, formated );
 
-		print(5, 0,"|____________________________________|__________|_________|_________|");
+		print(start + 5, 0,"|____________________________________|__________|_________|_________|");
 
-		Queue<NEREntry> copyQueue = new PriorityQueue<NEREntry>( toppers );
+		Queue<NEREntry> copyQueue = new PriorityQueue<NEREntry>( NEToppers );
     		Iterator<NEREntry> itr = copyQueue.iterator();
 
-		int count = 6;
+		int count = start + 6;
 		int rank = 0;
 
     		while( itr.hasNext()){
@@ -481,6 +515,13 @@ class Replies{
 		initCoreNLP();
 		clearScreen();
 
+		Set<String> nersSet = new TreeSet<String>();		
+		nersSet.add("COUNTRY");
+		nersSet.add("MISC");
+		nersSet.add("ORGANIZATION");
+		nersSet.add("PERSON");
+		nersSet.add("RELIGION");
+
 		query = query.replaceAll("\\s", "%20");
 
 		String[] cmd = new String[] {"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query="+query+"&tweet.fields=in_reply_to_user_id,author_id,geo,created_at,public_metrics,conversation_id", "--header", "Authorization:Bearer "+authorizationBearer};
@@ -493,6 +534,8 @@ class Replies{
 
 		int count = 0;
 		while( true ){
+
+			String nToken = null; 
 			try{
 				if( count == 0 && ocmd != null ){
 
@@ -526,6 +569,7 @@ class Replies{
 						print(1,0, formated1);
 						print(2,0, formated2);
 					}
+
 				}else if( count == 0){
 					print(1,0, "Search For: "+originalKey);
 				}
@@ -539,65 +583,94 @@ class Replies{
 				while ((line = reader.readLine()) != null) {
 					replies += line;
 				}
-				process.waitFor();
 
+				process.waitFor();
 				if( replies.trim().length() == 0 )
 					break;
+				try{
 
-				JSONObject obj = ( JSONObject ) ( new JSONParser().parse( replies ) );
-				String nToken = (String )( (JSONObject) obj.get("meta") ).get("next_token");
-				JSONArray arr = (JSONArray) obj.get("data");
+					JSONObject obj = ( JSONObject ) ( new JSONParser().parse( replies ) );
+					nToken = (String )( (JSONObject) obj.get("meta") ).get("next_token");
+					JSONArray arr = (JSONArray) obj.get("data");
 
-				Iterator itr = arr.iterator();
+					Iterator itr = arr.iterator();
 
-				while ( itr.hasNext() ) {
+					Set<String> listofner = new TreeSet<String>();
 
-					JSONObject jo = (JSONObject) itr.next();
-					String tweet = (String ) jo.get("text");
-					JSONObject pm = ( JSONObject ) jo.get("public_metrics");
+					while ( itr.hasNext() ) {
 
-					Long likeCount  = (Long)  pm.get("like_count");
-					Long retweetCount  = (Long)  pm.get("retweet_count");
+						JSONObject jo = (JSONObject) itr.next();
+						String tweet = (String ) jo.get("text");
+						JSONObject pm = ( JSONObject ) jo.get("public_metrics");
 
-					CoreDocument doc = new CoreDocument( tweet );
-					pipeline.annotate( doc );
+						Long likeCount  = (Long)  pm.get("like_count");
+						Long retweetCount  = (Long)  pm.get("retweet_count");
 
-					String NNP = "";
-					String PR = "";
-					String tag = "";
-					String original = "";
-					count++;
+						CoreDocument doc = new CoreDocument( tweet );
+						pipeline.annotate( doc );
 
-					for (CoreLabel tok : doc.tokens()) {
+						String NNP = "";
+						String PR = "";
+						String tag = "";
+						String original = "";
+						count++;
 
-						if( tag.trim().length() > 0 ){
-							original = tag;
-							tag = tag+"|"+tok.tag().trim();
-						}else{ 
-							tag = tok.tag().trim();
-							original = tag;
+						for (CoreSentence sent : doc.sentences()) {
+
+							String sentence = sent.text().trim();	
+							String regex = "(?<=^|(?<=[^a-zA-Z0-9-_\\.]))@([A-Za-z]+[A-Za-z0-9-_]+)";
+							sentence = sentence.replaceAll(regex,"").trim();
+							addNER( sentence, "SENTENCE", likeCount, retweetCount );
 						}
-					
-						if( tok.word().trim().indexOf("http:") >= 0 || tok.word().trim().indexOf("https:") >= 0  ){
-							addNER( expand ( tok.word().trim() ), "URL", likeCount, retweetCount );
-						}else if( tok.word().trim().charAt(0) == '@' ){
-							addNER( tok.word().trim(), "TWITTER", likeCount, retweetCount );
-						}else if( ners.containsKey( tag ) ){
-							NNP = NNP.trim()+" "+tok.word().trim();
-						}else {
-							addNER( NNP.trim(), "NER" , likeCount, retweetCount );
-							tag = ""; NNP = "";
+
+						for (CoreLabel tok : doc.tokens()) {
+
+							if( tag.trim().length() > 0 ){
+								original = tag;
+								tag = tag+"|"+tok.tag().trim();
+							}else{ 
+								tag = tok.tag().trim();
+								original = tag;
+							}
+						
+							if( tok.word().trim().indexOf("http:") >= 0 || tok.word().trim().indexOf("https:") >= 0  ){
+								addNER( expand ( tok.word().trim() ), "URL", likeCount, retweetCount );
+							}else if( tok.word().trim().charAt(0) == '@' ){
+								addNER( tok.word().trim(), "TWITTER", likeCount, retweetCount );
+							}else if( ners.containsKey( tag ) ){
+								NNP = NNP.trim()+" "+tok.word().trim();
+							}else {
+								listofner.add( cleanKey( NNP.trim().toUpperCase() ) );
+								addNER( NNP.trim(), "NER" , likeCount, retweetCount );
+								tag = ""; NNP = "";
+							}
 						}
+
+
+
+						count++;
+						addNER( NNP.trim(),"NER", likeCount, retweetCount );
+						listofner.add( cleanKey( NNP.trim().toUpperCase() ) );
+
+						for (CoreEntityMention em : doc.entityMentions()){
+							String key = cleanKey( em.text().toUpperCase() );
+							if( nersSet.contains( em.entityType() ) && !listofner.contains( key ) )
+								addNER( em.text(), "NER" , likeCount, retweetCount );
+                                		}
+						print( NEToppers, 10, count, 0, "NERS List (Tweets Read): ");
+						print( SEToppers, 10, count, 14,"Sentences (Tweets Read): ");
 					}
-					count++;
-					addNER( NNP.trim(),"NER", likeCount, retweetCount );
-					print( toppers, 10, count );
+
+				}catch(Exception e){
+					//doing nothings
 				}
 				cmd = new String[]{"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query="+query+"&tweet.fields=in_reply_to_user_id,author_id,created_at,geo,conversation_id,public_metrics&next_token="+nToken, "--header", "Authorization:Bearer "+authorizationBearer};
 
-				//cmd = new String[]{"curl", "--request", "GET", "--url", "https://api.twitter.com/2/tweets/search/recent?query="+query+"&tweet.fields=in_reply_to_user_id,author_id,created_at,conversation_id&next_token="+nToken, "--header", "Authorization:Bearer "+authorizationBearer};
 			}catch(Exception e){
-				break;
+				e.printStackTrace();
+			}finally{
+				if( nToken == null )
+					break;
 			}
 		}
 		print( NNPCount, length, true );
@@ -666,11 +739,15 @@ class Replies{
 	void addNER(String NNP, String type, Long likeCount, Long retweetCount ){
 
 		if( NNP.length() >  0 ) {
-			if( type.equals("NER") || type.equals("PHRASE")){	
+			if( type.equals("NER") || type.equals("PHRASE") || type.equals("SENTENCE") ){	
 				NNP = clean( NNP );
+			}else{
+				NNP = NNP.trim();
 			}
-			if( NNP != null )
+			if( NNP != null ){
+				
 				addNNP( NNP, type, likeCount, retweetCount);
+			}
 		}
 	}
 
@@ -678,9 +755,12 @@ class Replies{
 
 		initCoreNLP();
 		clearScreen();
+
 		double count = 0.0d;
 		int noOfTweets = 0;
+
 		for(String reply: replies){
+
 			CoreDocument doc = new CoreDocument( reply );
 			pipeline.annotate( doc );
 			count++;
@@ -749,12 +829,13 @@ class Replies{
 			addNER( NNP.trim(),"NER" , 0L, 0L);
 			noOfTweets++;
 			if( count % 2 == 0 ){
-				print( toppers, 10,  noOfTweets );
+				print( NEToppers, 10,  noOfTweets, 0, "NERS List (Tweets Read):" );
+				//print( SEToppers, 10,  noOfTweets, 13 );
 			}
 			//addNER( PR.trim(),"PHRASE" );
 			/*
 			   for (CoreSentence sent : doc.sentences()) {
-			   System.err.println(sent.text());
+			   	System.err.println(sent.text());
 			   }
 
 			   System.out.println("tokens and ner ners");
